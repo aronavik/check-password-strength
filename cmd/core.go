@@ -531,10 +531,10 @@ func showTable(data [][]string, w io.Writer, allDict []string) {
 
 		if err == nil && generatedPassword != "" && err2 == nil {
 			colorRow := []string{ row[1], row[2], score, row[5], generatedPassword, strongerPassword}
-			table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
+			table.Rich(colorRow, []tablewriter.Colors{nil, nil, {scoreColor}})
 		} else {
 			colorRow := []string{ row[1], row[2], score, row[5], "", ""}
-			table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
+			table.Rich(colorRow, []tablewriter.Colors{nil, nil, {scoreColor}})
 		}
 
 	}
