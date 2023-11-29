@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"syscall"
+	"math/big"
 
 	"check-password-strength/assets"
 
@@ -220,6 +221,28 @@ func checkMultiplePassword(csvfile, jsonfile string, interactive, stats bool, li
 	return nil
 }
 
+func generateRandomPassword(minLength, maxLength int) (string, error) {
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:'\",.<>/?`~"
+	
+	passwordLength, err := rand.Int(rand.Reader, big.NewInt(int64(maxLength-minLength+1)))
+		if err != nil {
+		return "", err
+	}
+	
+	length := int(passwordLength.Int64()) + minLength
+	password := make([]byte, length)
+	
+	for i := range password {
+		charIndex, err := rand.Int(rand.Reader, big.NewInt(int64(len(charset))))
+		if err != nil {
+			return "", err
+		}
+		password[i] = charset[charIndex.Int64()]
+	}
+	
+	return string(password), nil
+}
+
 func checkSinglePassword(username, password, jsonfile string, quiet, stats bool) error {
 
 	var output [][]string
@@ -384,7 +407,7 @@ func initStats(c int) statistics {
 func showTable(data [][]string, w io.Writer) {
 	// writer is a s parameter to pass buffer during tests
 	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"URL", "Username", "Password", "Score (0-4)", "Estimated time to crack", "Already used"})
+	table.SetHeader([]string{"URL", "Username", "Password", "Score (0-4)", "Estimated time to crack", "Already used", "Generated Password"})
 	table.SetBorder(false)
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
 
@@ -393,17 +416,21 @@ func showTable(data [][]string, w io.Writer) {
 		var scoreColor int
 
 		url := truncateURL(row[0])
-
+		var generatedPassword string
+		var err error
 		switch row[3] {
 		case "0":
 			score = " 0 - Really bad "
 			scoreColor = tablewriter.BgRedColor
+			generatedPassword, err = generateRandomPassword(10, 20)
 		case "1":
 			score = " 1 - Bad        "
 			scoreColor = tablewriter.BgHiRedColor
+			generatedPassword, err = generateRandomPassword(10, 20)
 		case "2":
 			score = " 2 - Weak       "
 			scoreColor = tablewriter.BgHiYellowColor
+			generatedPassword, err = generateRandomPassword(10, 20)
 		case "3":
 			score = " 3 - Good       "
 			scoreColor = tablewriter.BgHiGreenColor
@@ -412,8 +439,16 @@ func showTable(data [][]string, w io.Writer) {
 			scoreColor = tablewriter.BgGreenColor
 		}
 
-		colorRow := []string{url, row[1], row[2], score, row[5], row[6]}
-		table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
+		if err == nil && generatedPassword != "" {
+			colorRow := []string{url, row[1], row[2], score, row[5], row[6], generatedPassword}
+			table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
+		} else {
+			colorRow := []string{url, row[1], row[2], score, row[5], row[6], ""}
+			table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
+		}
+
+		// colorRow := []string{url, row[1], row[2], score, row[5], row[6]}
+		// table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
 
 	}
 
