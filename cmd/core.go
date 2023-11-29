@@ -14,6 +14,9 @@ import (
 	"strings"
 	"syscall"
 	"math/big"
+	"time"
+	"unicode"
+	mrand "math/rand"
 
 	"check-password-strength/assets"
 
@@ -185,7 +188,7 @@ func checkMultiplePassword(csvfile, jsonfile string, interactive, stats bool, li
 			duplicate[hash] = append(duplicate[hash], index)
 			index++
 
-			data.Password = redactPassword(data.Password)
+			// data.Password = redactPassword(data.Password)
 			output = append(output, []string{data.URL, data.Username, data.Password,
 				fmt.Sprintf("%d", passwordStength.Score),
 				fmt.Sprintf("%.2f", passwordStength.Entropy),
@@ -215,10 +218,19 @@ func checkMultiplePassword(csvfile, jsonfile string, interactive, stats bool, li
 	if stats {
 		showStats(stat, colorable.NewColorableStdout())
 	} else {
-		showTable(output, colorable.NewColorableStdout())
+		showTable(output, colorable.NewColorableStdout(), allDict)
 	}
 
 	return nil
+}
+
+func addRandChar(currentPassword string)(string, error){
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:'\",.<>/?`~"
+	password := []byte(currentPassword)
+	charIndex := mrand.Intn(len(charset))
+	password = append(password, charset[charIndex])
+
+	return string(password), nil
 }
 
 func generateRandomPassword(minLength, maxLength int) (string, error) {
@@ -243,6 +255,70 @@ func generateRandomPassword(minLength, maxLength int) (string, error) {
 	return string(password), nil
 }
 
+func generateStrongerPassword(currentPassword string, minLength, maxLength int) (string, error) {
+	// charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*()-_=+[]{}|;:'\",.<>/?`~"
+	mrand.Seed(time.Now().UnixNano())
+	// Start with the current password as a seed
+	password := []byte(currentPassword)
+
+	// Define a function to randomly capitalize a letter
+	capitalize := func(char byte) byte {
+		if 'a' <= char && char <= 'z' {
+			return char - 'a' + 'A'
+		}
+		return char
+	}
+
+	for i := range password {
+		// Randomly capitalize a letter
+		randNum1 := mrand.Intn(3)
+
+		if randNum1 == 0 {
+			password[i] = capitalize(password[i])
+		} else if randNum1 == 1 {
+			mrand.Seed(time.Now().UnixNano())
+			randNum2 := mrand.Intn(2)
+			switch unicode.ToLower(rune(password[i])) {
+			case 'a':
+				// Randomly choose between '4' and '@'
+				if randNum2 == 0 {
+					password[i] = '4'
+				} else {
+					password[i] = '@'
+				}
+			case 'i':
+				if randNum2 == 0 {
+					password[i] = '1'
+				} else {
+					password[i] = '!'
+				}
+			case 'l':
+				if randNum2 == 0 {
+					password[i] = '|'
+				} else {
+					password[i] = '7'
+				}
+			case 'c':
+				if randNum2 == 0 {
+					password[i] = '('
+				} else {
+					password[i] = '['
+				}
+			case 's':
+				password[i] = '$'
+			}
+		}
+	}
+
+	// Add up to 4 characters to the end
+	// for i := 0; i < 4; i++ {
+	// 	charIndex := mrand.Intn(len(charset))
+	// 	password = append(password, charset[charIndex])
+	// }
+	
+	return string(password), nil
+}
+
 func checkSinglePassword(username, password, jsonfile string, quiet, stats bool) error {
 
 	var output [][]string
@@ -257,7 +333,7 @@ func checkSinglePassword(username, password, jsonfile string, quiet, stats bool)
 	stat := initStats(len(allDict))
 
 	passwordStength := zxcvbn.PasswordStrength(password, append(allDict, username))
-	password = redactPassword(password)
+	// password = redactPassword(password)
 
 	// update statistics
 	stat.ScoreCount[passwordStength.Score] = stat.ScoreCount[passwordStength.Score] + 1
@@ -277,7 +353,7 @@ func checkSinglePassword(username, password, jsonfile string, quiet, stats bool)
 	if stats {
 		showStats(stat, colorable.NewColorableStdout())
 	} else {
-		showTable(output, colorable.NewColorableStdout())
+		showTable(output, colorable.NewColorableStdout(), allDict)
 	}
 
 	return nil
@@ -404,10 +480,10 @@ func initStats(c int) statistics {
 	}
 }
 
-func showTable(data [][]string, w io.Writer) {
+func showTable(data [][]string, w io.Writer, allDict []string) {
 	// writer is a s parameter to pass buffer during tests
 	table := tablewriter.NewWriter(w)
-	table.SetHeader([]string{"URL", "Username", "Password", "Score (0-4)", "Estimated time to crack", "Already used", "Generated Password"})
+	table.SetHeader([]string{ "Username", "Password", "Score (0-4)", "Time to crack", "Random", "Suggested"})
 	table.SetBorder(false)
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
 
@@ -415,22 +491,36 @@ func showTable(data [][]string, w io.Writer) {
 		var score string
 		var scoreColor int
 
-		url := truncateURL(row[0])
+		// url := truncateURL(row[0])
 		var generatedPassword string
 		var err error
+		var strongerPassword string
+		var err2 error
 		switch row[3] {
 		case "0":
 			score = " 0 - Really bad "
 			scoreColor = tablewriter.BgRedColor
 			generatedPassword, err = generateRandomPassword(10, 20)
+			strongerPassword, err2 = generateStrongerPassword(row[2], 10, 20)
+			for zxcvbn.PasswordStrength(strongerPassword, append(allDict, row[1])).Score < 3 {
+				strongerPassword, _ = addRandChar(strongerPassword)
+			}
 		case "1":
 			score = " 1 - Bad        "
 			scoreColor = tablewriter.BgHiRedColor
 			generatedPassword, err = generateRandomPassword(10, 20)
+			strongerPassword, err2 = generateStrongerPassword(row[2], 10, 20)
+			for zxcvbn.PasswordStrength(strongerPassword, append(allDict, row[1])).Score < 3 {
+				strongerPassword, _ = addRandChar(strongerPassword)
+			}
 		case "2":
 			score = " 2 - Weak       "
 			scoreColor = tablewriter.BgHiYellowColor
 			generatedPassword, err = generateRandomPassword(10, 20)
+			strongerPassword, err2 = generateStrongerPassword(row[2], 10, 20)
+			for zxcvbn.PasswordStrength(strongerPassword, append(allDict, row[1])).Score < 3 {
+				strongerPassword, _ = addRandChar(strongerPassword)
+			}
 		case "3":
 			score = " 3 - Good       "
 			scoreColor = tablewriter.BgHiGreenColor
@@ -439,16 +529,13 @@ func showTable(data [][]string, w io.Writer) {
 			scoreColor = tablewriter.BgGreenColor
 		}
 
-		if err == nil && generatedPassword != "" {
-			colorRow := []string{url, row[1], row[2], score, row[5], row[6], generatedPassword}
+		if err == nil && generatedPassword != "" && err2 == nil {
+			colorRow := []string{ row[1], row[2], score, row[5], generatedPassword, strongerPassword}
 			table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
 		} else {
-			colorRow := []string{url, row[1], row[2], score, row[5], row[6], ""}
+			colorRow := []string{ row[1], row[2], score, row[5], "", ""}
 			table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
 		}
-
-		// colorRow := []string{url, row[1], row[2], score, row[5], row[6]}
-		// table.Rich(colorRow, []tablewriter.Colors{nil, nil, nil, {scoreColor}})
 
 	}
 
