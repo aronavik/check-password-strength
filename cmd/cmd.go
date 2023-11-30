@@ -13,7 +13,7 @@ var log = New(Level).Sugar()
 func Execute() {
 
 	var interactive, stats, quiet, debug bool
-	var username, filename, customDict string
+	var username, filename, customDict, outFileName string
 	var limit int
 
 	app := &cli.App{
@@ -27,6 +27,12 @@ func Execute() {
 				Aliases:     []string{"f"},
 				Usage:       "Check passwords from `CSVFILE`",
 				Destination: &filename,
+			},
+			&cli.StringFlag{
+				Name:        "outfilename",
+				Aliases:     []string{"o"},
+				Usage:       "Output File for New Code",
+				Destination: &outFileName,
 			},
 			&cli.StringFlag{
 				Name:        "customdict",
@@ -110,7 +116,10 @@ func Execute() {
 			}
 
 			if filename != "" {
-				return checkMultiplePassword(filename, customDict, interactive, stats, limit)
+				if (outFileName != "") {
+					return checkMultiplePassword(filename, customDict, interactive, stats, limit, outFileName)
+				}
+				return checkMultiplePassword(filename, customDict, interactive, stats, limit, outFileName)
 			}
 			return checkSinglePassword(username, password, customDict, quiet, stats)
 
