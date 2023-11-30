@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode"
 	mrand "math/rand"
+	"strconv"
 
 	"check-password-strength/assets"
 
@@ -143,7 +144,7 @@ func askUsernamePassword() (string, string, error) {
 	return username, string(password), nil
 }
 
-func checkMultiplePassword(csvfile, jsonfile string, interactive, stats bool, limit int) error {
+func checkMultiplePassword(csvfile, jsonfile string, interactive, stats bool, limit int, outFileName string) error {
 
 	var output [][]string
 
@@ -213,12 +214,56 @@ func checkMultiplePassword(csvfile, jsonfile string, interactive, stats bool, li
 		}
 	}
 	log.Debugf("End marking duplicates")
-
+	var newPasswords []string
 	// show statistics report
 	if stats {
 		showStats(stat, colorable.NewColorableStdout())
 	} else {
-		showTable(output, colorable.NewColorableStdout(), allDict)
+		newPasswords = showTable(output, colorable.NewColorableStdout(), allDict)
+	}
+
+	
+
+	// Process passwords with strength less than 3
+	if outFileName != ""{
+		var createNewFile bool
+		var userInputAnswers []string
+		for _, passwordData := range output {
+			passwordStrength, err := strconv.Atoi(passwordData[3]) // Assuming password strength is at index 3
+			if err != nil {
+				return err
+			}
+
+			if passwordStrength < 3 {
+				// Ask the user if the password should be replaced
+				replacePassword := false
+				if csvfile != "" {
+					fmt.Printf("The password for user: %s has low strength (score: %d). Would you like to replace it with the suggested password? (y/n): ",
+						passwordData[1], passwordStrength)
+					var userInput string
+					_, err := fmt.Scanln(&userInput)
+					if err != nil {
+						return err
+					}
+					replacePassword = strings.ToLower(strings.TrimSpace(userInput)) == "y"
+					if replacePassword == true {
+						createNewFile = true
+					}
+					userInputAnswers = append(userInputAnswers, strings.ToLower(userInput))
+				}
+			} else{
+				userInputAnswers = append(userInputAnswers, "n")
+			}
+		}
+		// Replace the password if the user agreed
+		if createNewFile {
+
+			// Write the updated data back to the CSV file
+			err = changePassword(csvfile, outFileName, newPasswords, userInputAnswers)
+			if err != nil {
+				return err
+			}
+		}
 	}
 
 	return nil
@@ -353,10 +398,52 @@ func checkSinglePassword(username, password, jsonfile string, quiet, stats bool)
 	if stats {
 		showStats(stat, colorable.NewColorableStdout())
 	} else {
-		showTable(output, colorable.NewColorableStdout(), allDict)
+		newPasswords := showTable(output, colorable.NewColorableStdout(), allDict)
+		if newPasswords[0] != ""{
+			return nil
+		}
 	}
 
 	return nil
+}
+
+func changePassword(filename string, outFileName string, newPasswords []string, userInputAnswers []string) error {
+    fIn, err := os.Open(filename)
+    must(err)
+    defer fIn.Close()
+    fOut, err := os.Create(outFileName)
+    must(err)
+    defer fOut.Close()
+
+    r := csv.NewReader(fIn)
+    w := csv.NewWriter(fOut)
+
+    for i := 0; i < len(newPasswords); i++ {
+        record, err := r.Read()
+        if err == io.EOF {
+            break
+        }
+		if i != 0{
+			must(err)
+
+			if userInputAnswers[i - 1] == "y" {
+				record[2] = newPasswords[i - 1]
+			}
+
+		}
+		w.Write(record)
+    }
+
+    w.Flush()
+    must(w.Error())
+
+	return nil
+}
+
+func must(err error) {
+    if err != nil {
+        log.Fatal(err)
+    }
 }
 
 func readCsv(filename string) ([][]string, csvHeaderOrder, error) {
@@ -480,12 +567,14 @@ func initStats(c int) statistics {
 	}
 }
 
-func showTable(data [][]string, w io.Writer, allDict []string) {
+func showTable(data [][]string, w io.Writer, allDict []string) []string {
 	// writer is a s parameter to pass buffer during tests
 	table := tablewriter.NewWriter(w)
 	table.SetHeader([]string{ "Username", "Password", "Score (0-4)", "Time to crack", "Random", "Suggested"})
 	table.SetBorder(false)
 	table.SetAlignment(tablewriter.ALIGN_LEFT)
+
+	var newPasswords []string
 
 	for _, row := range data {
 		var score string
@@ -505,6 +594,7 @@ func showTable(data [][]string, w io.Writer, allDict []string) {
 			for zxcvbn.PasswordStrength(strongerPassword, append(allDict, row[1])).Score < 3 {
 				strongerPassword, _ = addRandChar(strongerPassword)
 			}
+			newPasswords = append(newPasswords, strongerPassword)
 		case "1":
 			score = " 1 - Bad        "
 			scoreColor = tablewriter.BgHiRedColor
@@ -513,6 +603,7 @@ func showTable(data [][]string, w io.Writer, allDict []string) {
 			for zxcvbn.PasswordStrength(strongerPassword, append(allDict, row[1])).Score < 3 {
 				strongerPassword, _ = addRandChar(strongerPassword)
 			}
+			newPasswords = append(newPasswords, strongerPassword)
 		case "2":
 			score = " 2 - Weak       "
 			scoreColor = tablewriter.BgHiYellowColor
@@ -521,12 +612,15 @@ func showTable(data [][]string, w io.Writer, allDict []string) {
 			for zxcvbn.PasswordStrength(strongerPassword, append(allDict, row[1])).Score < 3 {
 				strongerPassword, _ = addRandChar(strongerPassword)
 			}
+			newPasswords = append(newPasswords, strongerPassword)
 		case "3":
 			score = " 3 - Good       "
 			scoreColor = tablewriter.BgHiGreenColor
+			newPasswords = append(newPasswords, "")
 		case "4":
 			score = " 4 - Strong     "
 			scoreColor = tablewriter.BgGreenColor
+			newPasswords = append(newPasswords, "")
 		}
 
 		if err == nil && generatedPassword != "" && err2 == nil {
@@ -536,10 +630,11 @@ func showTable(data [][]string, w io.Writer, allDict []string) {
 			colorRow := []string{ row[1], row[2], score, row[5], "", ""}
 			table.Rich(colorRow, []tablewriter.Colors{nil, nil, {scoreColor}})
 		}
-
+		
 	}
 
 	table.Render()
+	return newPasswords
 }
 
 func showStats(stat statistics, w io.Writer) {
