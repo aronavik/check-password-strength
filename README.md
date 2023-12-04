@@ -130,6 +130,7 @@ COMMANDS:
 
 GLOBAL OPTIONS:
    --filename CSVFILE, -f CSVFILE      Check passwords from CSVFILE
+   --filename CSVFILE, -f CSVFILE -o outputcsvfile   allows you to replace passwords onto an outputfile
    --customdict JSONFILE, -c JSONFILE  Load custom dictionary from JSONFILE
    --interactive, -i                   enable interactive mode asking data from console (default: false)
    --stats, -s                         display only statistics (default: false)
